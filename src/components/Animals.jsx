@@ -33,6 +33,7 @@ export default function Animals() {
         exit_date: '', // Fecha opcional
         status: 'ACTIVE',
         repro_status: 'EMPTY',
+        pregnancy_date: '',
         repro_data: {
             insem_1_date: '',
             insem_1_bull: '',
@@ -80,6 +81,7 @@ export default function Animals() {
             exit_date: '',
             status: 'ACTIVE',
             repro_status: 'EMPTY',
+            pregnancy_date: '',
             repro_data: {
                 insem_1_date: '',
                 insem_1_bull: '',
@@ -95,6 +97,7 @@ export default function Animals() {
         setFormData({
             ...animal,
             exit_date: animal.exit_date || '', // Asegurar que sea cadena vacía si es null
+            pregnancy_date: animal.pregnancy_date || '',
             repro_data: animal.repro_data || {
                 insem_1_date: '',
                 insem_1_bull: '',
@@ -546,6 +549,18 @@ export default function Animals() {
                                 }
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                                 placeholder="Código del toro"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Fecha Preñez
+                            </label>
+                            <input
+                                type="date"
+                                value={formData.pregnancy_date}
+                                onChange={(e) => setFormData({ ...formData, pregnancy_date: e.target.value })}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                             />
                         </div>
 
