@@ -124,9 +124,10 @@ export default function Animals() {
                 updatedReproStatus = 'INSEMINATED'
             }
 
-            // Convertir exit_date vacío a null para la base de datos
+            // Excluir campos que no pertenecen a la tabla (client es join, id solo para updates)
+            const { client, id, ...animalData } = formData
             const dataToSave = {
-                ...formData,
+                ...animalData,
                 exit_date: formData.exit_date || null,
                 repro_status: updatedReproStatus,
             }
@@ -199,7 +200,7 @@ export default function Animals() {
             formatDate(animal.entry_date),
             formatDate(animal.exit_date),
             animal.status,
-            animal.repro_status,
+            getReproStatusText(animal.repro_status),
             animal.observations || '-',
         ])
 
@@ -233,6 +234,15 @@ export default function Animals() {
             PREGNANT: 'bg-blue-100 text-blue-800',
         }
         return badges[status] || badges.EMPTY
+    }
+
+    function getReproStatusText(status) {
+        const translations = {
+            EMPTY: 'Vacía',
+            INSEMINATED: 'Inseminada',
+            PREGNANT: 'Preñada',
+        }
+        return translations[status] || status
     }
 
     if (loading) {
@@ -497,6 +507,41 @@ export default function Animals() {
                                     setFormData({
                                         ...formData,
                                         repro_data: { ...formData.repro_data, insem_1_bull: e.target.value },
+                                    })
+                                }
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                placeholder="Código del toro"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Inseminación 2 - Fecha
+                            </label>
+                            <input
+                                type="date"
+                                value={formData.repro_data.insem_2_date}
+                                onChange={(e) =>
+                                    setFormData({
+                                        ...formData,
+                                        repro_data: { ...formData.repro_data, insem_2_date: e.target.value },
+                                    })
+                                }
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Inseminación 2 - Toro
+                            </label>
+                            <input
+                                type="text"
+                                value={formData.repro_data.insem_2_bull}
+                                onChange={(e) =>
+                                    setFormData({
+                                        ...formData,
+                                        repro_data: { ...formData.repro_data, insem_2_bull: e.target.value },
                                     })
                                 }
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg"
