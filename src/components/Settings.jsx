@@ -1,10 +1,10 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { Info } from 'lucide-react'
+import { Info, Save } from 'lucide-react'
 
 /**
  * Módulo de Configuración
- * Datos del emisor de facturas
+ * Datos del emisor de facturas - Conectado con Supabase app_settings
  */
 export default function Settings() {
     const [formData, setFormData] = useState({
@@ -14,27 +14,72 @@ export default function Settings() {
         phone: '',
         email: '',
     })
-    const [loading, setLoading] = useState(false)
+    const [loading, setLoading] = useState(true)
+    const [saving, setSaving] = useState(false)
     const [message, setMessage] = useState(null)
 
-    async function handleSave() {
-        setLoading(true)
-        setMessage(null)
+    useEffect(() => {
+        loadSettings()
+    }, [])
 
+    async function loadSettings() {
         try {
-            // En un sistema real, guardarías esto en la tabla 'app_settings'
-            // Por simplicidad, solo mostramos mensaje de éxito
-            setMessage({ type: 'success', text: 'Configuración guardada correctamente' })
+            const { data, error } = await supabase
+                .from('app_settings')
+                .select('value')
+                .eq('key', 'emisor')
+                .single()
 
-            // Ejemplo de cómo guardaría en Supabase:
-            // const { error } = await supabase.from('app_settings').upsert([formData])
-            // if (error) throw error
+            if (error && error.code !== 'PGRST116') throw error
 
+            if (data?.value) {
+                setFormData({
+                    fiscal_name: data.value.fiscal_name || '',
+                    nif: data.value.nif || '',
+                    address: data.value.address || '',
+                    phone: data.value.phone || '',
+                    email: data.value.email || '',
+                })
+            }
         } catch (error) {
-            setMessage({ type: 'error', text: 'Error al guardar configuración' })
+            console.error('Error loading settings:', error)
         } finally {
             setLoading(false)
         }
+    }
+
+    async function handleSave() {
+        setSaving(true)
+        setMessage(null)
+
+        try {
+            if (!formData.fiscal_name || !formData.nif) {
+                setMessage({ type: 'error', text: 'El nombre fiscal y NIF son obligatorios' })
+                setSaving(false)
+                return
+            }
+
+            const { error } = await supabase
+                .from('app_settings')
+                .upsert({
+                    key: 'emisor',
+                    value: formData,
+                    updated_at: new Date().toISOString(),
+                }, { onConflict: 'key' })
+
+            if (error) throw error
+
+            setMessage({ type: 'success', text: 'Configuración guardada correctamente' })
+        } catch (error) {
+            console.error('Error saving settings:', error)
+            setMessage({ type: 'error', text: 'Error al guardar: ' + error.message })
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    if (loading) {
+        return <div className="p-8">Cargando configuración...</div>
     }
 
     return (
@@ -58,7 +103,7 @@ export default function Settings() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-gray-700 mb-1">
-                            Nombre Fiscal / Razón Social
+                            Nombre Fiscal / Razón Social *
                         </label>
                         <input
                             type="text"
@@ -70,7 +115,7 @@ export default function Settings() {
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">NIF/CIF</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">NIF/CIF *</label>
                         <input
                             type="text"
                             value={formData.nif}
@@ -127,10 +172,11 @@ export default function Settings() {
 
                 <button
                     onClick={handleSave}
-                    disabled={loading}
-                    className="mt-6 bg-brand-700 hover:bg-brand-800 text-white px-6 py-2 rounded-lg disabled:opacity-50"
+                    disabled={saving}
+                    className="mt-6 flex items-center gap-2 bg-brand-700 hover:bg-brand-800 text-white px-6 py-2 rounded-lg disabled:opacity-50"
                 >
-                    {loading ? 'Guardando...' : 'Guardar Configuración'}
+                    <Save className="w-4 h-4" />
+                    {saving ? 'Guardando...' : 'Guardar Configuración'}
                 </button>
             </div>
         </div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { generateInitials } from '../lib/utils'
+import { generateInitials, validateNIF, validateEmail, validatePhone } from '../lib/utils'
 import { Plus, Edit, Trash2, Save, X } from 'lucide-react'
 
 /**
@@ -36,6 +36,7 @@ export default function Clients() {
             const { data, error } = await supabase
                 .from('clients')
                 .select('*')
+                .is('deleted_at', null)
                 .order('fiscal_name')
 
             if (error) throw error
@@ -93,9 +94,24 @@ export default function Clients() {
 
     async function handleSave() {
         try {
-            // Validación básica
-            if (!formData.fiscal_name || !formData.nif) {
-                alert('El nombre fiscal y NIF son obligatorios')
+            // Validación
+            if (!formData.fiscal_name) {
+                alert('El nombre fiscal es obligatorio')
+                return
+            }
+            const nifCheck = validateNIF(formData.nif)
+            if (!nifCheck.valid) {
+                alert(nifCheck.message)
+                return
+            }
+            const emailCheck = validateEmail(formData.email)
+            if (!emailCheck.valid) {
+                alert(emailCheck.message)
+                return
+            }
+            const phoneCheck = validatePhone(formData.phone)
+            if (!phoneCheck.valid) {
+                alert(phoneCheck.message)
                 return
             }
 
@@ -121,15 +137,38 @@ export default function Clients() {
     }
 
     async function handleDelete(id) {
-        if (!confirm('¿Estás seguro de eliminar este cliente?')) return
-
         try {
-            const { error } = await supabase.from('clients').delete().eq('id', id)
+            // Verificar dependencias antes de eliminar
+            const { count: animalCount } = await supabase
+                .from('animals')
+                .select('*', { count: 'exact', head: true })
+                .eq('client_id', id)
+                .is('deleted_at', null)
+
+            const { count: invoiceCount } = await supabase
+                .from('invoices')
+                .select('*', { count: 'exact', head: true })
+                .eq('client_id', id)
+
+            if (animalCount > 0 || invoiceCount > 0) {
+                const deps = []
+                if (animalCount > 0) deps.push(`${animalCount} animal(es)`)
+                if (invoiceCount > 0) deps.push(`${invoiceCount} factura(s)`)
+                alert(`No se puede eliminar este cliente porque tiene ${deps.join(' y ')} asociados. Elimina o reasigna los registros primero.`)
+                return
+            }
+
+            if (!confirm('¿Estás seguro de eliminar este cliente? Esta acción no se puede deshacer.')) return
+
+            const { error } = await supabase
+                .from('clients')
+                .update({ deleted_at: new Date().toISOString() })
+                .eq('id', id)
             if (error) throw error
             await loadClients()
         } catch (error) {
             console.error('Error deleting client:', error)
-            alert('Error al eliminar cliente')
+            alert('Error al eliminar cliente: ' + error.message)
         }
     }
 

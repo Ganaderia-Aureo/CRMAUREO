@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { formatDate } from '../lib/utils'
+import { formatDate, validateCrotal, validateDateRange } from '../lib/utils'
 import { Plus, Edit, Trash2, Save, X, Filter, Download, Search } from 'lucide-react'
 import jsPDF from 'jspdf'
 import 'jspdf-autotable'
@@ -52,6 +52,7 @@ export default function Animals() {
             const { data: clientsData } = await supabase
                 .from('clients')
                 .select('*')
+                .is('deleted_at', null)
                 .order('fiscal_name')
 
             const { data: animalsData } = await supabase
@@ -60,6 +61,7 @@ export default function Animals() {
           *,
           client:clients(fiscal_name, initials)
         `)
+                .is('deleted_at', null)
                 .order('crotal')
 
             setClients(clientsData || [])
@@ -113,9 +115,40 @@ export default function Animals() {
 
     async function handleSave() {
         try {
-            if (!formData.crotal || !formData.client_id) {
-                alert('El crotal y cliente son obligatorios')
+            if (!formData.client_id) {
+                alert('El cliente es obligatorio')
                 return
+            }
+
+            const crotalCheck = validateCrotal(formData.crotal)
+            if (!crotalCheck.valid) {
+                alert(crotalCheck.message)
+                return
+            }
+
+            const dateCheck = validateDateRange(formData.entry_date, formData.exit_date)
+            if (!dateCheck.valid) {
+                alert(dateCheck.message)
+                return
+            }
+
+            // Verificar crotal duplicado entre animales activos
+            if (formData.status === 'ACTIVE') {
+                const { data: existing } = await supabase
+                    .from('animals')
+                    .select('id')
+                    .eq('crotal', formData.crotal.trim())
+                    .eq('status', 'ACTIVE')
+                    .is('deleted_at', null)
+                    .limit(1)
+
+                const isDuplicate = existing && existing.length > 0 &&
+                    (editing === 'new' || (existing[0].id !== editing))
+
+                if (isDuplicate) {
+                    alert(`Ya existe un animal activo con el crotal "${formData.crotal}". No se puede duplicar.`)
+                    return
+                }
             }
 
             // Lógica automática: cambio de estado reproductivo
@@ -155,15 +188,18 @@ export default function Animals() {
     }
 
     async function handleDelete(id) {
-        if (!confirm('¿Estás seguro de eliminar este animal?')) return
+        if (!confirm('¿Estás seguro de eliminar este animal? Se marcará como eliminado.')) return
 
         try {
-            const { error } = await supabase.from('animals').delete().eq('id', id)
+            const { error } = await supabase
+                .from('animals')
+                .update({ deleted_at: new Date().toISOString() })
+                .eq('id', id)
             if (error) throw error
             await loadData()
         } catch (error) {
             console.error('Error deleting animal:', error)
-            alert('Error al eliminar animal')
+            alert('Error al eliminar animal: ' + error.message)
         }
     }
 

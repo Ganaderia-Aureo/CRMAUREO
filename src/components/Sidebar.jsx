@@ -1,5 +1,5 @@
 import React from 'react'
-import { Home, Users, Beef, FileText, Settings, LogOut } from 'lucide-react'
+import { Home, Users, Beef, FileText, Settings, LogOut, ClipboardList } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 
 /**
@@ -15,6 +15,7 @@ export default function Sidebar({ currentView, onNavigate }) {
         { id: 'animals', label: 'Animales', icon: Beef },
         { id: 'invoices', label: 'Facturación', icon: FileText },
         { id: 'settings', label: 'Configuración', icon: Settings },
+        { id: 'auditlog', label: 'Auditoría', icon: ClipboardList },
     ]
 
     return (

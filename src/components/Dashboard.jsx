@@ -24,16 +24,18 @@ export default function Dashboard({ onNavigate }) {
 
     async function loadDashboardData() {
         try {
-            // Contar animales activos
+            // Contar animales activos (excluyendo soft-deleted)
             const { count: animalCount } = await supabase
                 .from('animals')
                 .select('*', { count: 'exact', head: true })
                 .eq('status', 'ACTIVE')
+                .is('deleted_at', null)
 
-            // Contar clientes
+            // Contar clientes (excluyendo soft-deleted)
             const { count: clientCount } = await supabase
                 .from('clients')
                 .select('*', { count: 'exact', head: true })
+                .is('deleted_at', null)
 
             // Contar facturas en borrador del mes actual
             const currentDate = new Date()
@@ -44,10 +46,28 @@ export default function Dashboard({ onNavigate }) {
                 .eq('period_month', currentDate.getMonth() + 1)
                 .eq('period_year', currentDate.getFullYear())
 
-            // Calcular proyección (simplificada: animales * tarifa media * días del mes)
-            const avgRate = 2.5 // Tarifa promedio estimada
+            // Calcular proyección REAL basada en tarifas por cliente
             const daysInMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate()
-            const projected = (animalCount || 0) * avgRate * daysInMonth
+            let projected = 0
+
+            const { data: clientsWithRates } = await supabase
+                .from('clients')
+                .select('id, contract_rules')
+                .is('deleted_at', null)
+
+            if (clientsWithRates) {
+                for (const client of clientsWithRates) {
+                    const { count: clientAnimals } = await supabase
+                        .from('animals')
+                        .select('*', { count: 'exact', head: true })
+                        .eq('client_id', client.id)
+                        .eq('status', 'ACTIVE')
+                        .is('deleted_at', null)
+
+                    const rate = client.contract_rules?.daily_rate || 2.5
+                    projected += (clientAnimals || 0) * rate * daysInMonth
+                }
+            }
 
             setStats({
                 activeAnimals: animalCount || 0,

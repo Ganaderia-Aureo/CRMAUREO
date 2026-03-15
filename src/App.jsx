@@ -7,6 +7,8 @@ import Clients from './components/Clients'
 import Animals from './components/Animals'
 import Invoices from './components/Invoices'
 import Settings from './components/Settings'
+import AuditLog from './components/AuditLog'
+import { Toaster } from 'react-hot-toast'
 import './index.css'
 
 /**
@@ -41,6 +43,8 @@ function AppContent() {
                 return <Invoices />
             case 'settings':
                 return <Settings />
+            case 'auditlog':
+                return <AuditLog />
             default:
                 return <Dashboard onNavigate={setCurrentView} />
         }
@@ -61,6 +65,7 @@ function App() {
     return (
         <AuthProvider>
             <AppContent />
+            <Toaster position="top-right" toastOptions={{ duration: 4000 }} />
         </AuthProvider>
     )
 }

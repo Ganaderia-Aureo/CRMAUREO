@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { formatCurrency, formatDate } from '../lib/utils'
-import { FileText, Plus, Download, AlertCircle, Edit2, X, Save, Eye, Search } from 'lucide-react'
+import { FileText, Plus, Download, AlertCircle, Edit2, X, Save, Eye, Search, Trash2 } from 'lucide-react'
+import toast from 'react-hot-toast'
 import jsPDF from 'jspdf'
 import 'jspdf-autotable'
 
@@ -62,17 +63,41 @@ export default function Invoices() {
             const month = selectedPeriod.month
             const year = selectedPeriod.year
 
-            const { data: clients } = await supabase.from('clients').select('*')
+            // Verificar si ya existen borradores para este periodo
+            const { data: existingDrafts } = await supabase
+                .from('invoices')
+                .select('id, client_id')
+                .eq('period_month', month)
+                .eq('period_year', year)
+                .eq('status', 'DRAFT')
+
+            if (existingDrafts && existingDrafts.length > 0) {
+                if (!confirm(`Ya existen ${existingDrafts.length} borrador(es) para este periodo. ¿Deseas generar nuevos borradores igualmente? (Los existentes NO se borrarán)`)) {
+                    setGenerating(false)
+                    return
+                }
+            }
+
+            const { data: clients } = await supabase.from('clients').select('*').is('deleted_at', null)
+
+            // Cargar todos los animales de una vez (evita N+1 queries)
+            const { data: allAnimals } = await supabase
+                .from('animals')
+                .select('*')
+                .neq('status', 'HISTORIC')
+                .is('deleted_at', null)
+
+            // Agrupar por cliente
+            const animalsByClient = {}
+            for (const animal of allAnimals || []) {
+                if (!animalsByClient[animal.client_id]) animalsByClient[animal.client_id] = []
+                animalsByClient[animal.client_id].push(animal)
+            }
 
             for (const client of clients) {
-                // Filtrar solo animales que no sean históricos para optimizar, aunque el filtrado de fechas es el definitivo
-                const { data: animals } = await supabase
-                    .from('animals')
-                    .select('*')
-                    .eq('client_id', client.id)
-                    .neq('status', 'HISTORIC') // Solo excluimos los que ya son históricos si aplica
+                const animals = animalsByClient[client.id] || []
 
-                if (!animals || animals.length === 0) continue
+                if (animals.length === 0) continue
 
                 // DEFINIR FECHAS DEL MES DE FACTURACIÓN
                 // Inicio del mes (Día 1 00:00:00)
@@ -194,6 +219,7 @@ export default function Invoices() {
                         totals: {
                             base: base,
                             discount_amount: 0,
+                            base_after_discount: base,
                             iva_rate: ivaRate,
                             iva_amount: ivaAmount,
                             retention_rate: retentionRate,
@@ -204,11 +230,11 @@ export default function Invoices() {
                 ])
             }
 
-            alert('Borradores generados correctamente')
+            toast.success('Borradores generados correctamente')
             await loadInvoices()
         } catch (error) {
             console.error('Error generating drafts:', error)
-            alert('Error al generar borradores')
+            toast.error('Error al generar borradores')
         } finally {
             setGenerating(false)
         }
@@ -319,7 +345,7 @@ export default function Invoices() {
 
             if (error) throw error
 
-            await generatePDF({ ...invoice, invoice_number: invoiceNumber })
+            await generatePDF({ ...invoice, invoice_number: invoiceNumber, issued_at: new Date().toISOString() })
 
             await loadInvoices()
         } catch (error) {
@@ -330,6 +356,21 @@ export default function Invoices() {
 
     async function generatePDF(invoice, isPreview = false) {
         const doc = new jsPDF()
+
+        // Cargar datos del emisor desde app_settings
+        let emisor = { fiscal_name: 'Ganadería Áureo', nif: '', address: '', phone: '', email: '' }
+        try {
+            const { data: settingsData } = await supabase
+                .from('app_settings')
+                .select('value')
+                .eq('key', 'emisor')
+                .single()
+            if (settingsData?.value?.fiscal_name) {
+                emisor = settingsData.value
+            }
+        } catch (e) {
+            console.log('No se pudieron cargar datos del emisor, usando valores por defecto')
+        }
 
         // Cargar logo de manera asíncrona
         let logoData = null
@@ -371,13 +412,13 @@ export default function Invoices() {
         doc.setFont(undefined, 'bold')
         doc.text('FACTURA', 40, 20)
 
-        // Información de la empresa (derecha, en blanco)
+        // Información de la empresa desde app_settings (derecha, en blanco)
         doc.setFontSize(8)
         doc.setFont(undefined, 'normal')
-        doc.text('Ganadería Áureo', 205, 12, { align: 'right' })
-        doc.text('NIF: 12345678Z', 205, 17, { align: 'right' })
-        doc.text('León, España', 205, 22, { align: 'right' })
-        doc.text('contacto@ganaderiaaureo.com', 205, 27, { align: 'right' })
+        doc.text(emisor.fiscal_name || 'Ganadería Áureo', 205, 12, { align: 'right' })
+        doc.text(emisor.nif ? `NIF: ${emisor.nif}` : '', 205, 17, { align: 'right' })
+        doc.text(emisor.address || '', 205, 22, { align: 'right' })
+        doc.text(emisor.email || '', 205, 27, { align: 'right' })
 
         // Restaurar color de texto a negro
         doc.setTextColor(0, 0, 0)
@@ -405,7 +446,10 @@ export default function Invoices() {
         doc.setTextColor(0, 0, 0)
         doc.setFontSize(8)
         doc.text(`Nº Factura: ${invoice.invoice_number || 'BORRADOR'}`, 205, 45, { align: 'right' })
-        doc.text(`Fecha: ${formatDate(new Date())}`, 205, 50, { align: 'right' })
+        const invoiceDate = invoice.issued_at
+            ? new Date(invoice.issued_at)
+            : invoice.updated_at ? new Date(invoice.updated_at) : new Date()
+        doc.text(`Fecha: ${formatDate(invoiceDate)}`, 205, 50, { align: 'right' })
         doc.text(`Periodo: ${String(invoice.period_month).padStart(2, '0')}/${invoice.period_year}`, 205, 55, { align: 'right' })
 
         // Tabla de productos con estilo moderno
@@ -507,6 +551,28 @@ export default function Invoices() {
 
     async function handlePreview(invoice) {
         await generatePDF(invoice, true)
+    }
+
+    async function handleDeleteDraft(invoice) {
+        if (invoice.status !== 'DRAFT') {
+            alert('Solo se pueden eliminar borradores')
+            return
+        }
+        if (!confirm(`¿Eliminar el borrador de ${invoice.client?.fiscal_name} (${invoice.period_month}/${invoice.period_year})?`)) return
+
+        try {
+            const { error } = await supabase
+                .from('invoices')
+                .delete()
+                .eq('id', invoice.id)
+                .eq('status', 'DRAFT')
+
+            if (error) throw error
+            await loadInvoices()
+        } catch (error) {
+            console.error('Error deleting draft:', error)
+            alert('Error al eliminar borrador: ' + error.message)
+        }
     }
 
     // Estado para los inputs del formulario de filtros
@@ -626,7 +692,7 @@ export default function Invoices() {
                             onChange={(e) => setSelectedPeriod({ ...selectedPeriod, year: parseInt(e.target.value) })}
                             className="px-2 py-1 text-sm border border-gray-300 rounded"
                         >
-                            {Array.from({ length: 11 }, (_, i) => 2020 + i).map(year => (
+                            {Array.from({ length: 11 }, (_, i) => new Date().getFullYear() - 2 + i).map(year => (
                                 <option key={year} value={year}>{year}</option>
                             ))}
                         </select>
@@ -871,6 +937,13 @@ export default function Invoices() {
                                                     className="text-brand-600 hover:text-brand-900 flex items-center gap-1"
                                                 >
                                                     <FileText className="w-4 h-4" />
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeleteDraft(invoice)}
+                                                    className="text-red-600 hover:text-red-900 flex items-center gap-1"
+                                                    title="Eliminar borrador"
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
                                                 </button>
                                             </div>
                                         ) : (
