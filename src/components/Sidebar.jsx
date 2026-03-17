@@ -48,6 +48,11 @@ export default function Sidebar({ currentView, onNavigate }) {
                 })}
             </nav>
 
+            {/* Logo */}
+            <div className="px-4 py-4 flex justify-center">
+                <img src="/logo.png" alt="Ganadería Áureo" className="w-28 h-28 object-contain opacity-85" />
+            </div>
+
             {/* Logout Button */}
             <div className="p-4 border-t border-brand-700">
                 <button

@@ -1,6 +1,5 @@
 import React, { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { LogIn } from 'lucide-react'
 
 /**
  * Pantalla de Login
@@ -31,9 +30,7 @@ export default function Login() {
         <div className="min-h-screen bg-gradient-to-br from-brand-700 via-brand-600 to-emerald-500 flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
                 <div className="text-center mb-8">
-                    <div className="inline-flex items-center justify-center w-16 h-16 bg-brand-100 rounded-full mb-4">
-                        <LogIn className="w-8 h-8 text-brand-700" />
-                    </div>
+                    <img src="/logo.png" alt="Ganadería Áureo" className="w-28 h-28 object-contain mx-auto mb-4" />
                     <h1 className="text-3xl font-bold text-gray-900">CRM Ganadería Áureo</h1>
                     <p className="text-gray-600 mt-2">Gestión integral de recría</p>
                 </div>
