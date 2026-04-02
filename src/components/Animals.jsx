@@ -164,8 +164,16 @@ export default function Animals() {
             const { client, id, ...animalData } = formData
             const dataToSave = {
                 ...animalData,
+                birth_date: formData.birth_date || null,
+                entry_date: formData.entry_date || null,
                 exit_date: formData.exit_date || null,
+                pregnancy_date: formData.pregnancy_date || null,
                 repro_status: updatedReproStatus,
+                repro_data: {
+                    ...formData.repro_data,
+                    insem_1_date: formData.repro_data.insem_1_date || null,
+                    insem_2_date: formData.repro_data.insem_2_date || null,
+                },
             }
 
             if (editing === 'new') {
