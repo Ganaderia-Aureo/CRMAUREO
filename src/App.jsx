@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import Login from './components/Login'
 import Sidebar from './components/Sidebar'
+import BottomNav from './components/BottomNav'
 import Dashboard from './components/Dashboard'
 import Clients from './components/Clients'
 import Animals from './components/Animals'
@@ -51,9 +52,10 @@ function AppContent() {
     }
 
     return (
-        <div className="flex h-screen bg-gray-100">
+        <div className="flex h-screen bg-gray-100" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
             <Sidebar currentView={currentView} onNavigate={setCurrentView} />
-            <main className="flex-1 overflow-y-auto">{renderView()}</main>
+            <main className="flex-1 overflow-y-auto pb-16 lg:pb-0">{renderView()}</main>
+            <BottomNav currentView={currentView} onNavigate={setCurrentView} />
         </div>
     )
 }

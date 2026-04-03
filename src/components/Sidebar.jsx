@@ -19,7 +19,7 @@ export default function Sidebar({ currentView, onNavigate }) {
     ]
 
     return (
-        <div className="w-64 bg-brand-800 text-white h-screen flex flex-col">
+        <div className="hidden lg:flex w-64 bg-brand-800 text-white h-screen flex-col">
             {/* Header */}
             <div className="p-6 border-b border-brand-700">
                 <h1 className="text-xl font-bold">CRM Ganadería Áureo</h1>
