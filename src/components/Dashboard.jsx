@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { formatCurrency } from '../lib/utils'
-import { TrendingUp, Users, Beef, FileText, AlertCircle } from 'lucide-react'
+import { TrendingUp, Users, Beef, FileText, AlertCircle, Baby } from 'lucide-react'
 
 /**
  * Dashboard Principal
@@ -13,6 +13,7 @@ export default function Dashboard({ onNavigate }) {
         totalClients: 0,
         pendingInvoices: 0,
         projectedRevenue: 0,
+        sevenMonthPregnancy: 0,
     })
     const [loading, setLoading] = useState(true)
     const [alert, setAlert] = useState(null)
@@ -69,11 +70,30 @@ export default function Dashboard({ onNavigate }) {
                 }
             }
 
+            // Contar animales con >=7 meses de preñez sin desmarcar
+            const sevenMonthsAgo = new Date()
+            sevenMonthsAgo.setMonth(sevenMonthsAgo.getMonth() - 7)
+            const sevenMonthsAgoStr = sevenMonthsAgo.toISOString().split('T')[0]
+
+            const { data: pregnantAnimals } = await supabase
+                .from('animals')
+                .select('id, pregnancy_date, repro_data')
+                .eq('status', 'ACTIVE')
+                .is('deleted_at', null)
+                .not('pregnancy_date', 'is', null)
+                .lte('pregnancy_date', sevenMonthsAgoStr)
+
+            // Filtrar los que no han sido desmarcados
+            const sevenMonthCount = (pregnantAnimals || []).filter(
+                (a) => !a.repro_data?.seven_month_checked
+            ).length
+
             setStats({
                 activeAnimals: animalCount || 0,
                 totalClients: clientCount || 0,
                 pendingInvoices: draftCount || 0,
                 projectedRevenue: projected,
+                sevenMonthPregnancy: sevenMonthCount,
             })
         } catch (error) {
             console.error('Error loading dashboard:', error)
@@ -118,6 +138,14 @@ export default function Dashboard({ onNavigate }) {
             icon: TrendingUp,
             color: 'bg-green-500',
         },
+        {
+            label: 'Animales 7 Meses Preñez',
+            value: stats.sevenMonthPregnancy,
+            icon: Baby,
+            color: stats.sevenMonthPregnancy > 0 ? 'bg-yellow-500' : 'bg-gray-400',
+            highlight: stats.sevenMonthPregnancy > 0,
+            onClick: () => onNavigate('animals'),
+        },
     ]
 
     if (loading) {
@@ -152,22 +180,51 @@ export default function Dashboard({ onNavigate }) {
                 </div>
             )}
 
+            {/* Alerta 7 meses preñez */}
+            {stats.sevenMonthPregnancy > 0 && (
+                <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6 rounded-r-lg">
+                    <div className="flex items-start">
+                        <Baby className="w-5 h-5 text-yellow-600 mt-0.5" />
+                        <div className="ml-3 flex-1">
+                            <p className="text-yellow-700 font-medium">
+                                {stats.sevenMonthPregnancy} {stats.sevenMonthPregnancy === 1 ? 'animal lleva' : 'animales llevan'} 7 o más meses de preñez — requieren revisión
+                            </p>
+                            <button
+                                onClick={() => onNavigate('animals')}
+                                className="mt-2 text-sm text-yellow-800 underline hover:text-yellow-900"
+                            >
+                                Ver animales
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* KPI Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
                 {kpis.map((kpi, index) => {
                     const Icon = kpi.icon
                     return (
                         <div
                             key={index}
-                            className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow"
+                            onClick={kpi.onClick}
+                            className={`bg-white rounded-xl shadow-sm border p-6 transition-shadow ${
+                                kpi.highlight
+                                    ? 'border-yellow-300 bg-yellow-50 hover:shadow-md cursor-pointer'
+                                    : 'border-gray-200 hover:shadow-md' + (kpi.onClick ? ' cursor-pointer' : '')
+                            }`}
                         >
                             <div className="flex items-center justify-between mb-4">
                                 <div className={`${kpi.color} p-3 rounded-lg`}>
                                     <Icon className="w-6 h-6 text-white" />
                                 </div>
                             </div>
-                            <p className="text-gray-600 text-sm font-medium">{kpi.label}</p>
-                            <p className="text-3xl font-bold text-gray-900 mt-2">{kpi.value}</p>
+                            <p className={`text-sm font-medium ${kpi.highlight ? 'text-yellow-700' : 'text-gray-600'}`}>
+                                {kpi.label}
+                            </p>
+                            <p className={`text-3xl font-bold mt-2 ${kpi.highlight ? 'text-yellow-900' : 'text-gray-900'}`}>
+                                {kpi.value}
+                            </p>
                         </div>
                     )
                 })}

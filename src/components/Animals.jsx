@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { formatDate, validateCrotal, validateDateRange } from '../lib/utils'
-import { Plus, Edit, Trash2, Save, X, Filter, Download, Search } from 'lucide-react'
+import { Plus, Edit, Trash2, Save, X, Filter, Download, Search, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
 import jsPDF from 'jspdf'
 import 'jspdf-autotable'
 
@@ -14,6 +14,10 @@ export default function Animals() {
     const [clients, setClients] = useState([])
     const [loading, setLoading] = useState(true)
     const [editing, setEditing] = useState(null)
+
+    // Ordenación: por defecto birth_date ascendente
+    const [sortField, setSortField] = useState('birth_date')
+    const [sortDir, setSortDir] = useState('asc')
 
     // Filtros mejorados
     const [filters, setFilters] = useState({
@@ -30,7 +34,7 @@ export default function Animals() {
         client_id: '',
         birth_date: '',
         entry_date: '',
-        exit_date: '', // Fecha opcional
+        exit_date: '',
         status: 'ACTIVE',
         repro_status: 'EMPTY',
         pregnancy_date: '',
@@ -39,6 +43,7 @@ export default function Animals() {
             insem_1_bull: '',
             insem_2_date: '',
             insem_2_bull: '',
+            seven_month_checked: false,
         },
         observations: '',
     })
@@ -89,6 +94,7 @@ export default function Animals() {
                 insem_1_bull: '',
                 insem_2_date: '',
                 insem_2_bull: '',
+                seven_month_checked: false,
             },
             observations: '',
         })
@@ -98,13 +104,15 @@ export default function Animals() {
         setEditing(animal.id)
         setFormData({
             ...animal,
-            exit_date: animal.exit_date || '', // Asegurar que sea cadena vacía si es null
+            exit_date: animal.exit_date || '',
             pregnancy_date: animal.pregnancy_date || '',
-            repro_data: animal.repro_data || {
+            repro_data: {
                 insem_1_date: '',
                 insem_1_bull: '',
                 insem_2_date: '',
                 insem_2_bull: '',
+                seven_month_checked: false,
+                ...(animal.repro_data || {}),
             },
         })
     }
@@ -160,7 +168,7 @@ export default function Animals() {
                 updatedReproStatus = 'INSEMINATED'
             }
 
-            // Excluir campos que no pertenecen a la tabla (client es join, id solo para updates)
+            // Excluir campos que no pertenecen a la tabla
             const { client, id, ...animalData } = formData
             const dataToSave = {
                 ...animalData,
@@ -211,50 +219,84 @@ export default function Animals() {
         }
     }
 
+    // Devuelve true si el animal lleva >= 7 meses de preñez y no ha sido desmarcado
+    function isSevenMonthPregnancy(animal) {
+        if (!animal.pregnancy_date) return false
+        if (animal.repro_data?.seven_month_checked) return false
+        const pregnancyDate = new Date(animal.pregnancy_date)
+        const sevenMonthsLater = new Date(pregnancyDate)
+        sevenMonthsLater.setMonth(sevenMonthsLater.getMonth() + 7)
+        return new Date() >= sevenMonthsLater
+    }
+
     // Filtrar animales con múltiples criterios
     const filteredAnimals = animals.filter((animal) => {
         if (filters.client !== 'all' && animal.client_id !== filters.client) return false
         if (filters.status !== 'all' && animal.status !== filters.status) return false
         if (filters.reproStatus !== 'all' && animal.repro_status !== filters.reproStatus) return false
-
-        // Búsqueda por crotal (parcial)
-        if (filters.crotal && !animal.crotal.toLowerCase().includes(filters.crotal.toLowerCase())) {
-            return false
-        }
-
-        // Filtro por rango de fechas (entrada)
+        if (filters.crotal && !animal.crotal.toLowerCase().includes(filters.crotal.toLowerCase())) return false
         if (filters.dateFrom && animal.entry_date < filters.dateFrom) return false
         if (filters.dateTo && animal.entry_date > filters.dateTo) return false
-
         return true
     })
+
+    // Ordenar
+    const sortedAnimals = [...filteredAnimals].sort((a, b) => {
+        let aVal = a[sortField]
+        let bVal = b[sortField]
+
+        // Para campos de cliente usamos initials
+        if (sortField === 'client') {
+            aVal = a.client?.initials || ''
+            bVal = b.client?.initials || ''
+        }
+
+        if (aVal === null || aVal === undefined) aVal = ''
+        if (bVal === null || bVal === undefined) bVal = ''
+
+        const cmp = String(aVal).localeCompare(String(bVal), 'es', { numeric: true })
+        return sortDir === 'asc' ? cmp : -cmp
+    })
+
+    function handleSort(field) {
+        if (sortField === field) {
+            setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
+        } else {
+            setSortField(field)
+            setSortDir('asc')
+        }
+    }
+
+    function SortIcon({ field }) {
+        if (sortField !== field) return <ChevronsUpDown className="w-3 h-3 inline ml-1 text-gray-400" />
+        return sortDir === 'asc'
+            ? <ChevronUp className="w-3 h-3 inline ml-1 text-brand-600" />
+            : <ChevronDown className="w-3 h-3 inline ml-1 text-brand-600" />
+    }
 
     function exportToPDF() {
         const doc = new jsPDF('landscape')
 
-        // Título
         doc.setFontSize(16)
         doc.text('Listado de Animales - Ganadería Áureo', 15, 15)
 
         doc.setFontSize(10)
         doc.text(`Generado: ${formatDate(new Date())}`, 15, 22)
-        doc.text(`Total: ${filteredAnimals.length} animales`, 15, 27)
+        doc.text(`Total: ${sortedAnimals.length} animales`, 15, 27)
 
-        // Preparar datos de la tabla
-        const tableData = filteredAnimals.map((animal) => [
+        const tableData = sortedAnimals.map((animal) => [
             animal.crotal,
             animal.client?.initials || '-',
+            formatDate(animal.birth_date),
             formatDate(animal.entry_date),
             formatDate(animal.exit_date),
-            animal.status,
             getReproStatusText(animal.repro_status),
             animal.observations || '-',
         ])
 
-        // Tabla con autotable
         doc.autoTable({
             startY: 32,
-            head: [['Crotal', 'Cliente', 'Entrada', 'Salida', 'Estado', 'Repro', 'Observaciones']],
+            head: [['Crotal', 'Cliente', 'Nacimiento', 'Entrada', 'Salida', 'Repro', 'Observaciones']],
             body: tableData,
             theme: 'grid',
             styles: { fontSize: 8 },
@@ -326,7 +368,6 @@ export default function Animals() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                    {/* Búsqueda por Crotal */}
                     <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">Buscar Crotal</label>
                         <div className="relative">
@@ -341,7 +382,6 @@ export default function Animals() {
                         </div>
                     </div>
 
-                    {/* Cliente */}
                     <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">Cliente</label>
                         <select
@@ -358,7 +398,6 @@ export default function Animals() {
                         </select>
                     </div>
 
-                    {/* Estado */}
                     <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">Estado</label>
                         <select
@@ -374,7 +413,6 @@ export default function Animals() {
                         </select>
                     </div>
 
-                    {/* Estado Reproductivo */}
                     <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">Repro</label>
                         <select
@@ -389,7 +427,6 @@ export default function Animals() {
                         </select>
                     </div>
 
-                    {/* Fecha Desde */}
                     <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">Desde</label>
                         <input
@@ -400,7 +437,6 @@ export default function Animals() {
                         />
                     </div>
 
-                    {/* Fecha Hasta */}
                     <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">Hasta</label>
                         <input
@@ -608,6 +644,28 @@ export default function Animals() {
                             />
                         </div>
 
+                        {/* Desmarcar alerta 7 meses preñez */}
+                        <div className="flex items-center gap-3 bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2">
+                            <input
+                                type="checkbox"
+                                id="seven_month_checked"
+                                checked={formData.repro_data.seven_month_checked || false}
+                                onChange={(e) =>
+                                    setFormData({
+                                        ...formData,
+                                        repro_data: {
+                                            ...formData.repro_data,
+                                            seven_month_checked: e.target.checked,
+                                        },
+                                    })
+                                }
+                                className="w-4 h-4 accent-yellow-500"
+                            />
+                            <label htmlFor="seven_month_checked" className="text-sm font-medium text-yellow-800 cursor-pointer select-none">
+                                Desmarcar alerta 7 meses preñez
+                            </label>
+                        </div>
+
                         <div className="md:col-span-2">
                             <label className="block text-sm font-medium text-gray-700 mb-1">
                                 Observaciones
@@ -641,28 +699,54 @@ export default function Animals() {
                 </div>
             )}
 
+            {/* Leyenda 7 meses */}
+            {sortedAnimals.some(isSevenMonthPregnancy) && (
+                <div className="flex items-center gap-2 mb-3 px-1">
+                    <span className="inline-block w-4 h-4 rounded bg-yellow-200 border border-yellow-400"></span>
+                    <span className="text-xs text-yellow-700 font-medium">Animal con ≥7 meses de preñez — requiere revisión</span>
+                </div>
+            )}
+
             {/* Tabla de animales */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                 <table className="w-full">
                     <thead className="bg-gray-50 border-b border-gray-200">
                         <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                Crotal
+                            <th
+                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 select-none"
+                                onClick={() => handleSort('crotal')}
+                            >
+                                Crotal <SortIcon field="crotal" />
                             </th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                Cliente
+                            <th
+                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 select-none"
+                                onClick={() => handleSort('client')}
+                            >
+                                Cliente <SortIcon field="client" />
                             </th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                Entrada
+                            <th
+                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 select-none"
+                                onClick={() => handleSort('birth_date')}
+                            >
+                                Nacimiento <SortIcon field="birth_date" />
                             </th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                Salida
+                            <th
+                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 select-none"
+                                onClick={() => handleSort('entry_date')}
+                            >
+                                Entrada <SortIcon field="entry_date" />
                             </th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                Estado
+                            <th
+                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 select-none"
+                                onClick={() => handleSort('exit_date')}
+                            >
+                                Salida <SortIcon field="exit_date" />
                             </th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                Reproductivo
+                            <th
+                                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 select-none"
+                                onClick={() => handleSort('repro_status')}
+                            >
+                                Reproductivo <SortIcon field="repro_status" />
                             </th>
                             <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
                                 Acciones
@@ -670,61 +754,61 @@ export default function Animals() {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
-                        {filteredAnimals.length === 0 ? (
+                        {sortedAnimals.length === 0 ? (
                             <tr>
                                 <td colSpan="7" className="px-6 py-8 text-center text-gray-500">
                                     No hay animales que mostrar
                                 </td>
                             </tr>
                         ) : (
-                            filteredAnimals.map((animal) => (
-                                <tr key={animal.id} className="hover:bg-gray-50">
-                                    <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                                        {animal.crotal}
-                                    </td>
-                                    <td className="px-6 py-4 text-sm text-gray-600">
-                                        {animal.client?.initials || '-'}
-                                    </td>
-                                    <td className="px-6 py-4 text-sm text-gray-600">
-                                        {formatDate(animal.entry_date)}
-                                    </td>
-                                    <td className="px-6 py-4 text-sm text-gray-600">
-                                        {formatDate(animal.exit_date)}
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <span
-                                            className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusBadge(
-                                                animal.status
-                                            )}`}
-                                        >
-                                            {animal.status}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <span
-                                            className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getReproStatusBadge(
-                                                animal.repro_status
-                                            )}`}
-                                        >
-                                            {animal.repro_status}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4 text-right">
-                                        <button
-                                            onClick={() => handleEdit(animal)}
-                                            className="text-brand-600 hover:text-brand-900 mr-3"
-                                        >
-                                            <Edit className="w-4 h-4 inline" />
-                                        </button>
-                                        <button
-                                            onClick={() => handleDelete(animal.id)}
-                                            className="text-red-600 hover:text-red-900"
-                                        >
-                                            <Trash2 className="w-4 h-4 inline" />
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))
+                            sortedAnimals.map((animal) => {
+                                const sevenMonth = isSevenMonthPregnancy(animal)
+                                return (
+                                    <tr
+                                        key={animal.id}
+                                        className={`hover:bg-gray-50 ${sevenMonth ? 'bg-yellow-50' : ''}`}
+                                    >
+                                        <td className={`px-6 py-4 text-sm font-medium ${sevenMonth ? 'text-yellow-900 underline decoration-yellow-400 decoration-2' : 'text-gray-900'}`}>
+                                            {animal.crotal}
+                                        </td>
+                                        <td className="px-6 py-4 text-sm text-gray-600">
+                                            {animal.client?.initials || '-'}
+                                        </td>
+                                        <td className="px-6 py-4 text-sm text-gray-600">
+                                            {formatDate(animal.birth_date)}
+                                        </td>
+                                        <td className="px-6 py-4 text-sm text-gray-600">
+                                            {formatDate(animal.entry_date)}
+                                        </td>
+                                        <td className="px-6 py-4 text-sm text-gray-600">
+                                            {formatDate(animal.exit_date)}
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <span
+                                                className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getReproStatusBadge(
+                                                    animal.repro_status
+                                                )}`}
+                                            >
+                                                {getReproStatusText(animal.repro_status)}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-4 text-right">
+                                            <button
+                                                onClick={() => handleEdit(animal)}
+                                                className="text-brand-600 hover:text-brand-900 mr-3"
+                                            >
+                                                <Edit className="w-4 h-4 inline" />
+                                            </button>
+                                            <button
+                                                onClick={() => handleDelete(animal.id)}
+                                                className="text-red-600 hover:text-red-900"
+                                            >
+                                                <Trash2 className="w-4 h-4 inline" />
+                                            </button>
+                                        </td>
+                                    </tr>
+                                )
+                            })
                         )}
                     </tbody>
                 </table>
