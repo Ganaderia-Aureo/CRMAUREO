@@ -229,6 +229,26 @@ export default function Animals() {
         return new Date() >= sevenMonthsLater
     }
 
+    // Devuelve la fecha de última inseminación (la más reciente de las dos)
+    function getLastInseminationDate(animal) {
+        const d1 = animal.repro_data?.insem_1_date || null
+        const d2 = animal.repro_data?.insem_2_date || null
+        if (!d1 && !d2) return null
+        if (!d1) return d2
+        if (!d2) return d1
+        return new Date(d2) > new Date(d1) ? d2 : d1
+    }
+
+    // Calcula meses completos transcurridos desde una fecha hasta hoy
+    function monthsSince(dateStr) {
+        if (!dateStr) return 0
+        const date = new Date(dateStr)
+        const now = new Date()
+        let months = (now.getFullYear() - date.getFullYear()) * 12 + (now.getMonth() - date.getMonth())
+        if (now.getDate() < date.getDate()) months -= 1
+        return months
+    }
+
     // Filtrar animales con múltiples criterios
     const filteredAnimals = animals.filter((animal) => {
         if (filters.client !== 'all' && animal.client_id !== filters.client) return false
@@ -707,6 +727,18 @@ export default function Animals() {
                 </div>
             )}
 
+            {/* Leyenda última inseminación */}
+            <div className="flex flex-wrap items-center gap-4 mb-3 px-1">
+                <div className="flex items-center gap-2">
+                    <span className="inline-block w-4 h-4 rounded bg-yellow-100 border border-yellow-300"></span>
+                    <span className="text-xs text-yellow-700 font-medium">Última inseminación ≥6 meses</span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="inline-block w-4 h-4 rounded bg-red-100 border border-red-300"></span>
+                    <span className="text-xs text-red-700 font-medium">Última inseminación ≥7 meses</span>
+                </div>
+            </div>
+
             {/* Tabla de animales */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                 <table className="w-full">
@@ -748,6 +780,9 @@ export default function Animals() {
                             >
                                 Reproductivo <SortIcon field="repro_status" />
                             </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                Última Insem.
+                            </th>
                             <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
                                 Acciones
                             </th>
@@ -756,13 +791,21 @@ export default function Animals() {
                     <tbody className="divide-y divide-gray-200">
                         {sortedAnimals.length === 0 ? (
                             <tr>
-                                <td colSpan="7" className="px-6 py-8 text-center text-gray-500">
+                                <td colSpan="8" className="px-6 py-8 text-center text-gray-500">
                                     No hay animales que mostrar
                                 </td>
                             </tr>
                         ) : (
                             sortedAnimals.map((animal) => {
                                 const sevenMonth = isSevenMonthPregnancy(animal)
+                                const lastInsem = getLastInseminationDate(animal)
+                                const insemMonths = lastInsem ? monthsSince(lastInsem) : 0
+                                let insemCellClass = 'text-gray-600'
+                                if (lastInsem && insemMonths >= 7) {
+                                    insemCellClass = 'bg-red-100 text-red-800 font-semibold'
+                                } else if (lastInsem && insemMonths >= 6) {
+                                    insemCellClass = 'bg-yellow-100 text-yellow-800 font-semibold'
+                                }
                                 return (
                                     <tr
                                         key={animal.id}
@@ -791,6 +834,9 @@ export default function Animals() {
                                             >
                                                 {getReproStatusText(animal.repro_status)}
                                             </span>
+                                        </td>
+                                        <td className={`px-6 py-4 text-sm ${insemCellClass}`}>
+                                            {lastInsem ? formatDate(lastInsem) : '-'}
                                         </td>
                                         <td className="px-6 py-4 text-right">
                                             <button

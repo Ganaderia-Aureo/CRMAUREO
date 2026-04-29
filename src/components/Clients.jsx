@@ -18,6 +18,7 @@ export default function Clients() {
         phone: '',
         address: '',
         initials: '',
+        notes: '',
         contract_rules: {
             daily_rate: 2.5,
             iva_rate: 10,
@@ -58,6 +59,7 @@ export default function Clients() {
             phone: '',
             address: '',
             initials: '',
+            notes: '',
             contract_rules: {
                 daily_rate: 2.5,
                 iva_rate: 10,
@@ -70,7 +72,7 @@ export default function Clients() {
 
     function handleEdit(client) {
         setEditing(client.id)
-        setFormData(client)
+        setFormData({ ...client, notes: client.notes || '' })
     }
 
     function handleCancel() {
@@ -82,6 +84,7 @@ export default function Clients() {
             phone: '',
             address: '',
             initials: '',
+            notes: '',
             contract_rules: {
                 daily_rate: 2.5,
                 iva_rate: 10,
@@ -261,6 +264,19 @@ export default function Clients() {
                                 onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
                                 placeholder="Calle Principal, 123, León"
+                            />
+                        </div>
+
+                        <div className="md:col-span-2">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Notas para Factura
+                            </label>
+                            <textarea
+                                value={formData.notes || ''}
+                                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+                                rows="3"
+                                placeholder="Cuenta bancaria, condiciones de pago, u otros datos a mostrar en la factura"
                             />
                         </div>
 

@@ -40,7 +40,7 @@ export default function Invoices() {
                 .from('invoices')
                 .select(`
           *,
-          client:clients(fiscal_name, initials, contract_rules)
+          client:clients(fiscal_name, initials, contract_rules, notes)
         `)
                 .order('created_at', { ascending: false })
 
@@ -212,6 +212,7 @@ export default function Invoices() {
                             client_name: client.fiscal_name,
                             client_nif: client.nif,
                             client_address: client.address,
+                            client_notes: client.notes || '',
                             line_items: lineItems,
                             discount_amount: 0,
                             discount_reason: '',
@@ -505,7 +506,8 @@ export default function Invoices() {
         finalY += 5
 
         if (invoice.totals.discount_amount > 0) {
-            doc.text('DESCUENTO', leftX, finalY)
+            const discountConcept = (invoice.frozen_snapshot?.discount_reason || 'DESCUENTO').toUpperCase()
+            doc.text(discountConcept, leftX, finalY)
             doc.text(`-${formatCurrency(invoice.totals.discount_amount)}`, 200, finalY, {
                 align: 'right',
             })
@@ -529,6 +531,23 @@ export default function Invoices() {
         doc.setFont(undefined, 'bold')
         doc.text('TOTAL', leftX, finalY)
         doc.text(formatCurrency(invoice.totals.total), 200, finalY, { align: 'right' })
+
+        // Notas del cliente (cuenta bancaria u otros datos)
+        const clientNotes = invoice.frozen_snapshot?.client_notes || invoice.client?.notes || ''
+        if (clientNotes && clientNotes.trim()) {
+            finalY += 15
+            doc.setTextColor(100, 100, 100)
+            doc.setFontSize(9)
+            doc.setFont(undefined, 'bold')
+            doc.text('NOTAS', 10, finalY)
+
+            doc.setFont(undefined, 'normal')
+            doc.setFontSize(8)
+            finalY += 5
+            const notesLines = doc.splitTextToSize(clientNotes, 190)
+            doc.text(notesLines, 10, finalY)
+            finalY += notesLines.length * 4
+        }
 
         // Nota de agradecimiento
         finalY += 15
@@ -829,7 +848,7 @@ export default function Invoices() {
 
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Motivo del Descuento
+                                Concepto del Descuento
                             </label>
                             <input
                                 type="text"
@@ -838,6 +857,7 @@ export default function Invoices() {
                                     setDraftForm({ ...draftForm, discount_reason: e.target.value })
                                 }
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                placeholder="Ej: Pronto pago, Fidelidad..."
                             />
                         </div>
                     </div>
