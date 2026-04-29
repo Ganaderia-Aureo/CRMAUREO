@@ -219,16 +219,6 @@ export default function Animals() {
         }
     }
 
-    // Devuelve true si el animal lleva >= 7 meses de preñez y no ha sido desmarcado
-    function isSevenMonthPregnancy(animal) {
-        if (!animal.pregnancy_date) return false
-        if (animal.repro_data?.seven_month_checked) return false
-        const pregnancyDate = new Date(animal.pregnancy_date)
-        const sevenMonthsLater = new Date(pregnancyDate)
-        sevenMonthsLater.setMonth(sevenMonthsLater.getMonth() + 7)
-        return new Date() >= sevenMonthsLater
-    }
-
     // Devuelve la fecha de última inseminación (la más reciente de las dos)
     function getLastInseminationDate(animal) {
         const d1 = animal.repro_data?.insem_1_date || null
@@ -247,6 +237,18 @@ export default function Animals() {
         let months = (now.getFullYear() - date.getFullYear()) * 12 + (now.getMonth() - date.getMonth())
         if (now.getDate() < date.getDate()) months -= 1
         return months
+    }
+
+    // Nivel de alerta para la última inseminación: 'red' (>=7m), 'yellow' (>=6m), null
+    // Si el animal está desmarcado mediante repro_data.seven_month_checked, no hay alerta
+    function getInseminationAlertLevel(animal) {
+        if (animal.repro_data?.seven_month_checked) return null
+        const last = getLastInseminationDate(animal)
+        if (!last) return null
+        const months = monthsSince(last)
+        if (months >= 7) return 'red'
+        if (months >= 6) return 'yellow'
+        return null
     }
 
     // Filtrar animales con múltiples criterios
@@ -682,7 +684,7 @@ export default function Animals() {
                                 className="w-4 h-4 accent-yellow-500"
                             />
                             <label htmlFor="seven_month_checked" className="text-sm font-medium text-yellow-800 cursor-pointer select-none">
-                                Desmarcar alerta 7 meses preñez
+                                Desmarcar alerta última inseminación
                             </label>
                         </div>
 
@@ -716,14 +718,6 @@ export default function Animals() {
                             Cancelar
                         </button>
                     </div>
-                </div>
-            )}
-
-            {/* Leyenda 7 meses */}
-            {sortedAnimals.some(isSevenMonthPregnancy) && (
-                <div className="flex items-center gap-2 mb-3 px-1">
-                    <span className="inline-block w-4 h-4 rounded bg-yellow-200 border border-yellow-400"></span>
-                    <span className="text-xs text-yellow-700 font-medium">Animal con ≥7 meses de preñez — requiere revisión</span>
                 </div>
             )}
 
@@ -797,21 +791,17 @@ export default function Animals() {
                             </tr>
                         ) : (
                             sortedAnimals.map((animal) => {
-                                const sevenMonth = isSevenMonthPregnancy(animal)
                                 const lastInsem = getLastInseminationDate(animal)
-                                const insemMonths = lastInsem ? monthsSince(lastInsem) : 0
+                                const alertLevel = getInseminationAlertLevel(animal)
                                 let insemCellClass = 'text-gray-600'
-                                if (lastInsem && insemMonths >= 7) {
+                                if (alertLevel === 'red') {
                                     insemCellClass = 'bg-red-100 text-red-800 font-semibold'
-                                } else if (lastInsem && insemMonths >= 6) {
+                                } else if (alertLevel === 'yellow') {
                                     insemCellClass = 'bg-yellow-100 text-yellow-800 font-semibold'
                                 }
                                 return (
-                                    <tr
-                                        key={animal.id}
-                                        className={`hover:bg-gray-50 ${sevenMonth ? 'bg-yellow-50' : ''}`}
-                                    >
-                                        <td className={`px-6 py-4 text-sm font-medium ${sevenMonth ? 'text-yellow-900 underline decoration-yellow-400 decoration-2' : 'text-gray-900'}`}>
+                                    <tr key={animal.id} className="hover:bg-gray-50">
+                                        <td className="px-6 py-4 text-sm font-medium text-gray-900">
                                             {animal.crotal}
                                         </td>
                                         <td className="px-6 py-4 text-sm text-gray-600">
