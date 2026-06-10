@@ -229,6 +229,18 @@ export default function Animals() {
         return new Date(d2) > new Date(d1) ? d2 : d1
     }
 
+    // Devuelve el toro de la inseminación más reciente (la que se asume cuajó)
+    function getPregnantBull(animal) {
+        const d1 = animal.repro_data?.insem_1_date || null
+        const d2 = animal.repro_data?.insem_2_date || null
+        const b1 = animal.repro_data?.insem_1_bull || null
+        const b2 = animal.repro_data?.insem_2_bull || null
+        if (!d1 && !d2) return b1 || b2 || null
+        if (!d1) return b2
+        if (!d2) return b1
+        return new Date(d2) > new Date(d1) ? b2 : b1
+    }
+
     // Calcula meses completos transcurridos desde una fecha hasta hoy
     function monthsSince(dateStr) {
         if (!dateStr) return 0
@@ -306,19 +318,24 @@ export default function Animals() {
         doc.text(`Generado: ${formatDate(new Date())}`, 15, 22)
         doc.text(`Total: ${sortedAnimals.length} animales`, 15, 27)
 
-        const tableData = sortedAnimals.map((animal) => [
-            animal.crotal,
-            animal.client?.initials || '-',
-            formatDate(animal.birth_date),
-            formatDate(animal.entry_date),
-            formatDate(animal.exit_date),
-            getReproStatusText(animal.repro_status),
-            animal.observations || '-',
-        ])
+        const tableData = sortedAnimals.map((animal) => {
+            const isPregnant = animal.repro_status === 'PREGNANT'
+            return [
+                animal.crotal,
+                animal.client?.initials || '-',
+                formatDate(animal.birth_date),
+                formatDate(animal.entry_date),
+                formatDate(animal.exit_date),
+                getReproStatusText(animal.repro_status),
+                isPregnant ? (getPregnantBull(animal) || '-') : '-',
+                isPregnant ? formatDate(animal.pregnancy_date) : '-',
+                animal.observations || '-',
+            ]
+        })
 
         doc.autoTable({
             startY: 32,
-            head: [['Crotal', 'Cliente', 'Nacimiento', 'Entrada', 'Salida', 'Repro', 'Observaciones']],
+            head: [['Crotal', 'Cliente', 'Nacimiento', 'Entrada', 'Salida', 'Repro', 'Toro', 'Fecha Preñez', 'Observaciones']],
             body: tableData,
             theme: 'grid',
             styles: { fontSize: 8 },
