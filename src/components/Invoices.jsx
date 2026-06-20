@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { formatCurrency, formatDate } from '../lib/utils'
-import { FileText, Plus, Download, AlertCircle, Edit2, X, Save, Eye, Search, Trash2 } from 'lucide-react'
+import { FileText, Plus, Download, AlertCircle, Edit2, X, Save, Eye, Search, Trash2, ListChecks } from 'lucide-react'
 import toast from 'react-hot-toast'
 import jsPDF from 'jspdf'
 import 'jspdf-autotable'
@@ -606,6 +606,247 @@ export default function Invoices() {
         await generatePDF(invoice, true)
     }
 
+    async function handleDesglose(invoice) {
+        try {
+            const client = invoice.client
+            const month = invoice.period_month
+            const year = invoice.period_year
+
+            const { data: animals, error } = await supabase
+                .from('animals')
+                .select('crotal, entry_date, exit_date, status')
+                .eq('client_id', invoice.client_id)
+                .neq('status', 'HISTORIC')
+                .is('deleted_at', null)
+                .lte('entry_date', `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`)
+                .order('entry_date', { ascending: true })
+
+            if (error) throw error
+
+            const startOfMonth = new Date(year, month - 1, 1)
+            startOfMonth.setHours(0, 0, 0, 0)
+            const endOfMonth = new Date(year, month, 0)
+            endOfMonth.setHours(23, 59, 59, 999)
+
+            const rate = client.contract_rules?.daily_rate || 2.5
+            const chargeEntry = client.contract_rules?.charge_entry_day !== false
+            const chargeExit = client.contract_rules?.charge_exit_day !== false
+
+            const rows = []
+            let totalBase = 0
+            let mesEntero = 0, parciales = 0, entradas = 0, salidas = 0
+
+            for (const a of (animals || [])) {
+                const entryDate = new Date(a.entry_date)
+                entryDate.setHours(0, 0, 0, 0)
+                const exitDate = a.exit_date ? new Date(a.exit_date) : null
+                if (exitDate) exitDate.setHours(23, 59, 59, 999)
+
+                if (entryDate > endOfMonth) continue
+                if (exitDate && exitDate < startOfMonth) continue
+
+                const effectiveStart = entryDate > startOfMonth ? entryDate : startOfMonth
+                const effectiveEnd = (exitDate && exitDate < endOfMonth) ? exitDate : endOfMonth
+
+                const d1 = new Date(effectiveStart); d1.setHours(0, 0, 0, 0)
+                const d2 = new Date(effectiveEnd); d2.setHours(0, 0, 0, 0)
+                let billingDays = Math.round((d2 - d1) / (1000 * 60 * 60 * 24)) + 1
+                const grossDays = billingDays
+
+                const entryInThisMonth = entryDate >= startOfMonth && entryDate <= endOfMonth
+                const exitInThisMonth = exitDate && exitDate >= startOfMonth && exitDate <= endOfMonth
+
+                let adj = ''
+                if (entryInThisMonth && !chargeEntry) { billingDays -= 1; adj += '-1 entrada ' }
+                if (exitInThisMonth && !chargeExit) { billingDays -= 1; adj += '-1 salida' }
+                if (!adj) adj = '—'
+
+                if (billingDays <= 0) continue
+
+                const importe = billingDays * rate
+                totalBase += importe
+
+                let tipo
+                if (entryInThisMonth && exitInThisMonth) { tipo = 'Entrada+Salida'; entradas++; salidas++; parciales++ }
+                else if (entryInThisMonth) { tipo = 'Entrada en mes'; entradas++; parciales++ }
+                else if (exitInThisMonth) { tipo = 'Salida en mes'; salidas++; parciales++ }
+                else { tipo = 'Mes entero'; mesEntero++ }
+
+                rows.push({
+                    crotal: a.crotal,
+                    entry: formatDate(a.entry_date),
+                    exit: a.exit_date ? formatDate(a.exit_date) : '—',
+                    status: a.status,
+                    tipo,
+                    grossDays,
+                    adj,
+                    billingDays,
+                    importe,
+                })
+            }
+
+            const discountAmount = invoice.totals?.discount_amount || 0
+            const discountReason = invoice.frozen_snapshot?.discount_reason || ''
+            const ivaRate = invoice.totals?.iva_rate ?? (client.contract_rules?.iva_rate || 10)
+            const retentionRate = invoice.totals?.retention_rate ?? (client.contract_rules?.retention_rate || 2)
+            const baseAfterDiscount = totalBase - discountAmount
+            const ivaAmount = baseAfterDiscount * (ivaRate / 100)
+            const retentionAmount = baseAfterDiscount * (retentionRate / 100)
+            const total = baseAfterDiscount + ivaAmount - retentionAmount
+
+            const doc = new jsPDF({ orientation: 'landscape' })
+            const PAGE_W = 297
+
+            doc.setFillColor(59, 67, 113)
+            doc.rect(0, 0, PAGE_W, 28, 'F')
+            doc.setTextColor(255, 255, 255)
+            doc.setFontSize(18)
+            doc.setFont(undefined, 'bold')
+            doc.text('DESGLOSE DETALLADO DE FACTURACIÓN', 10, 13)
+            doc.setFontSize(9)
+            doc.setFont(undefined, 'normal')
+            const periodLabel = `${String(month).padStart(2, '0')}/${year}`
+            doc.text(`Borrador ${periodLabel}`, 10, 21)
+            doc.text(`${client.fiscal_name}  ·  NIF: ${client.nif || '-'}`, PAGE_W - 10, 21, { align: 'right' })
+
+            doc.setTextColor(0, 0, 0)
+            doc.setFontSize(9)
+            let y = 36
+            doc.setFont(undefined, 'bold')
+            doc.text('CONDICIONES DEL CONTRATO', 10, y)
+            doc.setFont(undefined, 'normal')
+            y += 5
+            doc.text(`• Tarifa diaria: ${formatCurrency(rate)} / animal · día`, 12, y); y += 4
+            doc.text(`• IVA: ${ivaRate}%   ·   Retención: ${retentionRate}%`, 12, y); y += 4
+            doc.text(`• Día de entrada: ${chargeEntry ? 'SE COBRA' : 'NO se cobra'}   ·   Día de salida: ${chargeExit ? 'SE COBRA' : 'NO se cobra'}`, 12, y); y += 4
+            const lastDay = new Date(year, month, 0).getDate()
+            doc.text(`• Período: 01/${String(month).padStart(2, '0')}/${year} – ${lastDay}/${String(month).padStart(2, '0')}/${year} (${lastDay} días naturales)`, 12, y); y += 8
+
+            doc.setFont(undefined, 'bold')
+            doc.text('RESUMEN', 10, y)
+            doc.setFont(undefined, 'normal')
+            y += 5
+            doc.text(`• Total animales facturables: ${rows.length}`, 12, y); y += 4
+            doc.text(`• Mes entero: ${mesEntero} animales   ·   Con movimiento en mes: ${parciales} (${entradas} entradas, ${salidas} salidas)`, 12, y); y += 8
+
+            doc.setFont(undefined, 'bold')
+            doc.setFontSize(10)
+            doc.text('DETALLE ANIMAL POR ANIMAL', 10, y)
+            y += 3
+
+            doc.autoTable({
+                startY: y,
+                head: [['CROTAL', 'ENTRADA', 'SALIDA', 'ESTADO', 'TIPO', 'D.BRUTO', 'AJUSTE', 'D.COBRO', 'IMPORTE']],
+                body: rows.map(r => [
+                    r.crotal,
+                    r.entry,
+                    r.exit,
+                    r.status,
+                    r.tipo,
+                    String(r.grossDays),
+                    r.adj,
+                    String(r.billingDays),
+                    formatCurrency(r.importe),
+                ]),
+                theme: 'striped',
+                headStyles: {
+                    fillColor: [59, 67, 113],
+                    textColor: [255, 255, 255],
+                    fontSize: 7,
+                    fontStyle: 'bold',
+                },
+                bodyStyles: {
+                    fontSize: 6.5,
+                    textColor: [40, 40, 40],
+                },
+                columnStyles: {
+                    0: { cellWidth: 36 },
+                    1: { cellWidth: 22, halign: 'center' },
+                    2: { cellWidth: 22, halign: 'center' },
+                    3: { cellWidth: 22, halign: 'center' },
+                    4: { cellWidth: 36 },
+                    5: { cellWidth: 18, halign: 'center' },
+                    6: { cellWidth: 36, halign: 'center' },
+                    7: { cellWidth: 18, halign: 'center' },
+                    8: { cellWidth: 30, halign: 'right' },
+                },
+                margin: { left: 10, right: 10 },
+                didDrawPage: () => {
+                    doc.setFontSize(7)
+                    doc.setTextColor(120, 120, 120)
+                    doc.text(`Página ${doc.internal.getNumberOfPages()}`, PAGE_W - 10, 205, { align: 'right' })
+                    doc.text(`Ganadería Áureo · Desglose ${client.fiscal_name} · ${periodLabel}`, 10, 205)
+                },
+            })
+
+            let finalY = doc.lastAutoTable.finalY + 10
+            if (finalY > 170) { doc.addPage(); finalY = 20 }
+
+            doc.setFontSize(10)
+            doc.setFont(undefined, 'bold')
+            doc.setTextColor(0, 0, 0)
+            doc.text('TOTALES DE LA FACTURA', 10, finalY)
+            finalY += 6
+
+            doc.setFontSize(9)
+            doc.setFont(undefined, 'normal')
+            doc.setTextColor(60, 60, 60)
+            const labelX = 180
+            const valX = PAGE_W - 10
+
+            doc.text(`SUBTOTAL (${rows.length} animales)`, labelX, finalY)
+            doc.text(formatCurrency(totalBase), valX, finalY, { align: 'right' }); finalY += 5
+
+            if (discountAmount > 0) {
+                doc.text(`DESCUENTO${discountReason ? ' (' + discountReason + ')' : ''}`, labelX, finalY)
+                doc.text(`-${formatCurrency(discountAmount)}`, valX, finalY, { align: 'right' }); finalY += 5
+                doc.text('Base tras descuento', labelX, finalY)
+                doc.text(formatCurrency(baseAfterDiscount), valX, finalY, { align: 'right' }); finalY += 5
+            }
+
+            doc.text(`IVA (${ivaRate}%)`, labelX, finalY)
+            doc.text(`+${formatCurrency(ivaAmount)}`, valX, finalY, { align: 'right' }); finalY += 5
+
+            doc.text(`RETENCIÓN (${retentionRate}%)`, labelX, finalY)
+            doc.text(`-${formatCurrency(retentionAmount)}`, valX, finalY, { align: 'right' }); finalY += 7
+
+            doc.setFillColor(59, 67, 113)
+            doc.rect(labelX - 3, finalY - 5, valX - labelX + 6, 9, 'F')
+            doc.setTextColor(255, 255, 255)
+            doc.setFontSize(11)
+            doc.setFont(undefined, 'bold')
+            doc.text('TOTAL', labelX, finalY)
+            doc.text(formatCurrency(total), valX, finalY, { align: 'right' })
+
+            finalY += 14
+            doc.setTextColor(0, 0, 0)
+            doc.setFontSize(9)
+            doc.setFont(undefined, 'bold')
+            doc.text('CÓMO SE CALCULA CADA ANIMAL', 10, finalY)
+            finalY += 5
+            doc.setFont(undefined, 'normal')
+            doc.setFontSize(8)
+            const explain = [
+                '1) D.BRUTO = días naturales entre la entrada (o día 1 del mes si entró antes) y la salida (o último día del mes si sigue activo), ambos inclusive.',
+                '2) AJUSTE = aplica las reglas del contrato sobre cobrar el día de entrada y/o salida cuando éstos caen dentro del mes facturado.',
+                '3) D.COBRO = D.BRUTO − ajustes.   IMPORTE = D.COBRO × tarifa diaria.',
+                '4) El descuento manual se resta a la base ANTES de calcular IVA y retención.',
+            ]
+            for (const ln of explain) {
+                const wrapped = doc.splitTextToSize(ln, PAGE_W - 20)
+                doc.text(wrapped, 10, finalY)
+                finalY += wrapped.length * 4 + 1
+            }
+
+            const safeName = (client.fiscal_name || 'cliente').replace(/[^a-z0-9]+/gi, '_')
+            doc.save(`Desglose_${safeName}_${String(month).padStart(2, '0')}-${year}.pdf`)
+            toast.success('Desglose generado')
+        } catch (error) {
+            console.error('Error generating breakdown:', error)
+            toast.error('Error al generar desglose: ' + (error.message || 'desconocido'))
+        }
+    }
+
     async function handleDeleteDraft(invoice) {
         if (invoice.status !== 'DRAFT') {
             alert('Solo se pueden eliminar borradores')
@@ -981,6 +1222,13 @@ export default function Invoices() {
                                                     <Eye className="w-4 h-4" />
                                                 </button>
                                                 <button
+                                                    onClick={() => handleDesglose(invoice)}
+                                                    className="text-amber-600 hover:text-amber-900 flex items-center gap-1"
+                                                    title="Desglose animal por animal"
+                                                >
+                                                    <ListChecks className="w-4 h-4" />
+                                                </button>
+                                                <button
                                                     onClick={() => handleEditDraft(invoice)}
                                                     className="text-blue-600 hover:text-blue-900 flex items-center gap-1"
                                                 >
@@ -1001,12 +1249,22 @@ export default function Invoices() {
                                                 </button>
                                             </div>
                                         ) : (
-                                            <button
-                                                onClick={() => generatePDF(invoice, false)}
-                                                className="text-blue-600 hover:text-blue-900 flex items-center gap-1 ml-auto"
-                                            >
-                                                <Download className="w-4 h-4" />
-                                            </button>
+                                            <div className="flex items-center gap-2 justify-end">
+                                                <button
+                                                    onClick={() => handleDesglose(invoice)}
+                                                    className="text-amber-600 hover:text-amber-900 flex items-center gap-1"
+                                                    title="Desglose animal por animal"
+                                                >
+                                                    <ListChecks className="w-4 h-4" />
+                                                </button>
+                                                <button
+                                                    onClick={() => generatePDF(invoice, false)}
+                                                    className="text-blue-600 hover:text-blue-900 flex items-center gap-1"
+                                                    title="Descargar factura"
+                                                >
+                                                    <Download className="w-4 h-4" />
+                                                </button>
+                                            </div>
                                         )}
                                     </td>
                                 </tr>
