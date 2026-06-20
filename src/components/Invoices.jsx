@@ -110,8 +110,12 @@ export default function Invoices() {
 
                 const rate = client.contract_rules?.daily_rate || 2.5
 
-                // Procesar cada animal individualmente con el algoritmo de días exactos
-                let validLineItems = []
+                // Procesar cada animal y AGRUPAR por nº de días cobrados.
+                // En vez de una línea por animal (o una única línea consolidada "N ANIMALES"),
+                // generamos un grupo por cada valor distinto de "días cobrados": así el ganadero
+                // ve, por ejemplo, "124 animales · 31 días" + "5 animales · 22 días", etc.
+                const daysInMonth = endOfMonth.getDate()
+                const groupsByDays = {}
 
                 for (const animal of animals) {
                     // Normalizar fechas del animal
@@ -163,37 +167,37 @@ export default function Invoices() {
                     // 5. SEGURIDAD
                     if (billingDays <= 0) continue
 
-                    // Agregar a la lista válida
-                    validLineItems.push({
-                        crotal: animal.crotal,
-                        days: billingDays,
-                        daily_rate: rate,
-                        quantity: 1,
-                        row_total: billingDays * rate,
-                    })
+                    // Acumular en el grupo correspondiente a sus días cobrados.
+                    // (todos los animales de un grupo comparten días y tarifa,
+                    //  por lo que row_total = nº animales × días × tarifa)
+                    if (!groupsByDays[billingDays]) {
+                        groupsByDays[billingDays] = {
+                            days: billingDays,
+                            animal_count: 0,
+                            daily_rate: rate,
+                            row_total: 0,
+                        }
+                    }
+                    groupsByDays[billingDays].animal_count += 1
+                    groupsByDays[billingDays].row_total += billingDays * rate
                 }
 
-                if (validLineItems.length === 0) continue
+                const groups = Object.values(groupsByDays)
+                if (groups.length === 0) continue
 
-                // Si hay más de 10 animales, consolidar en una sola línea
-                let lineItems
-                if (validLineItems.length > 10) {
-                    const totalAnimals = validLineItems.length
-                    const totalAmount = validLineItems.reduce((sum, item) => sum + item.row_total, 0)
-                    // Calcular promedio de días para mostrar algo coherente, aunque el total es lo que importa
-                    // O mejor, mostrar "Varios periodos" si los días difieren
-                    // Para simplificar, usamos la suma total directamente
+                // Ordenar de más días a menos (mes completo primero) y construir las
+                // líneas agrupadas que verá el ganadero en el PDF.
+                groups.sort((a, b) => b.days - a.days)
 
-                    lineItems = [{
-                        crotal: `${totalAnimals} ANIMALES`,
-                        days: 1, // Unidad base
-                        daily_rate: totalAmount, // Precio total como tarifa unitaria de este item consolidado
-                        quantity: 1,
-                        row_total: totalAmount,
-                    }]
-                } else {
-                    lineItems = validLineItems
-                }
+                const lineItems = groups.map((g) => ({
+                    concept: g.days === daysInMonth
+                        ? 'Animales (mes completo)'
+                        : 'Animales (alta/baja en el mes)',
+                    animal_count: g.animal_count,
+                    days: g.days,
+                    daily_rate: g.daily_rate,
+                    row_total: g.row_total,
+                }))
 
                 const base = lineItems.reduce((sum, line) => sum + line.row_total, 0)
                 const ivaRate = client.contract_rules?.iva_rate || 10
@@ -453,19 +457,17 @@ export default function Invoices() {
         doc.text(`Fecha: ${formatDate(invoiceDate)}`, 205, 50, { align: 'right' })
         doc.text(`Periodo: ${String(invoice.period_month).padStart(2, '0')}/${invoice.period_year}`, 205, 55, { align: 'right' })
 
-        // Tabla de productos con estilo moderno
-        const tableData =
-            invoice.frozen_snapshot.line_items?.map((item) => [
-                item.crotal,
-                formatCurrency(item.daily_rate),
-                item.days,
-                formatCurrency(item.row_total),
-            ]) || []
+        // Tabla de conceptos.
+        // - Facturas nuevas: líneas AGRUPADAS por días (CONCEPTO · Nº ANIMALES · DÍAS · €/DÍA · IMPORTE)
+        // - Facturas antiguas ya emitidas: formato anterior por crotal (se respeta tal cual
+        //   para que una factura emitida siga viéndose exactamente igual que cuando se emitió)
+        const items = invoice.frozen_snapshot.line_items || []
+        const isGrouped = items.some(
+            (it) => it.animal_count !== undefined || it.concept !== undefined
+        )
 
-        doc.autoTable({
+        const sharedTableStyles = {
             startY: 72,
-            head: [['ANIMALES', 'PRECIO', 'CANT.', 'TOTAL']],
-            body: tableData,
             theme: 'plain',
             headStyles: {
                 fillColor: [59, 67, 113], // Navy
@@ -481,14 +483,46 @@ export default function Invoices() {
             alternateRowStyles: {
                 fillColor: [245, 245, 250],
             },
-            columnStyles: {
-                0: { cellWidth: 95 },
-                1: { halign: 'right', cellWidth: 35 },
-                2: { halign: 'center', cellWidth: 25 },
-                3: { halign: 'right', cellWidth: 35 },
-            },
             margin: { left: 10, right: 10 },
-        })
+        }
+
+        if (isGrouped) {
+            doc.autoTable({
+                ...sharedTableStyles,
+                head: [['CONCEPTO', 'Nº ANIMALES', 'DÍAS', '€/DÍA', 'IMPORTE']],
+                body: items.map((item) => [
+                    item.concept || 'Animales',
+                    String(item.animal_count ?? ''),
+                    String(item.days ?? ''),
+                    formatCurrency(item.daily_rate),
+                    formatCurrency(item.row_total),
+                ]),
+                columnStyles: {
+                    0: { cellWidth: 72 },
+                    1: { halign: 'center', cellWidth: 26 },
+                    2: { halign: 'center', cellWidth: 20 },
+                    3: { halign: 'right', cellWidth: 32 },
+                    4: { halign: 'right', cellWidth: 40 },
+                },
+            })
+        } else {
+            doc.autoTable({
+                ...sharedTableStyles,
+                head: [['ANIMALES', 'PRECIO', 'CANT.', 'TOTAL']],
+                body: items.map((item) => [
+                    item.crotal,
+                    formatCurrency(item.daily_rate),
+                    item.days,
+                    formatCurrency(item.row_total),
+                ]),
+                columnStyles: {
+                    0: { cellWidth: 95 },
+                    1: { halign: 'right', cellWidth: 35 },
+                    2: { halign: 'center', cellWidth: 25 },
+                    3: { halign: 'right', cellWidth: 35 },
+                },
+            })
+        }
 
         // Sección de totales
         let finalY = doc.lastAutoTable.finalY + 12
